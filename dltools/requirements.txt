@@ -1,0 +1,12 @@
+crcmod==1.7
+cycler==0.12.1
+matplotlib==3.10.1
+matplotx==0.3.10
+numpy==2.2.4
+pandas==2.2.3
+Pillow==11.2.1
+pyinstaller==6.12.0
+pyserial==3.5
+pywinstyles==1.8
+tkinterdnd2==0.4.2
+ttkbootstrap==1.10.1
