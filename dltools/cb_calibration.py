@@ -415,7 +415,8 @@ class CB_Calibrate_Frame:
 
     def create_tx_packet_interval_UI(self, p_frame):
         # 添加 tx_packet_interval_label 和 tx_packet_interval_entry
-        self.tx_packet_interval_label = ttkb.Label(p_frame, text="Tx发包间隔：(微秒)(7-65535)")
+        # self.tx_packet_interval_label = ttkb.Label(p_frame, text="Tx发包间隔：(毫秒)(7-65535)")
+        self.tx_packet_interval_label = ttkb.Label(p_frame, text="Tx发包间隔：(毫秒)(3-65)")
         self.tx_packet_interval_label.grid(row=0, column=0, padx=5, pady=5, sticky="w")
 
         self.tx_packet_interval_entry = ttkb.Entry(p_frame, width=8)
@@ -516,6 +517,10 @@ class CB_Calibrate_Frame:
         self.pdoa2_entry = ttkb.Entry(p_frame, width=8, justify='center')
         self.pdoa2_entry.grid(row=5, column=1, padx=0, pady=5, sticky="w")
 
+        # 添加提示信息
+        self.pdoa2_note_label = ttkb.Label(p_frame, text="PDOA2未使用，数值始终为0", foreground="red")
+        self.pdoa2_note_label.grid(row=8, column=0, columnspan=2, padx=5, pady=0, sticky="w")
+
         # 在新的 Frame 中添加 bt_write_aoa_calibration
         self.bt_write_aoa_calibration = ttkb.Button(p_frame, text="写入AOA校准值", command=self.real_wirte_aoa_calibration, bootstyle='outline-primary')
         self.bt_write_aoa_calibration.grid(row=6, column=0, padx=5, pady=5, sticky="w")
@@ -560,10 +565,10 @@ class CB_Calibrate_Frame:
             "单开天线1 RX： 0x01",
             "单开天线2 RX： 0x02",
             "单开天线3 RX： 0x04",
-            "双开天线1+2 Rx： 0x03",
-            "双开天线2+3 Rx： 0x06",
-            "双开天线1+3 Rx： 0x05",
-            "三开天线1+2+3 Rx： 0x07"
+            # "双开天线1+2 Rx： 0x03",
+            # "双开天线2+3 Rx： 0x06",
+            # "双开天线1+3 Rx： 0x05",
+            # "三开天线1+2+3 Rx： 0x07"
         ]
 
         self.rx_channel_config_combobox = ttkb.Combobox(p_frame, values=rx_channel_configs, state="readonly", width=20)
@@ -807,12 +812,14 @@ class CB_Calibrate_Frame:
                                     "\n"
                                     "PDOA1: 水平PDOA校准值\n"
                                     "\n"
-                                    "PDOA2: 垂直PDOA校准值\n",
+                                    "PDOA2: 垂直PDOA校准值\n"
+                                    "\n"
+                                    "PDOA2未使用，数值始终为0", 
             "当前操作_写入AOA校准值": "校准值范围：-32768到32767",
             "当前操作_工作模式设置": "工作模式设置的提示内容",
             "当前操作_读取工作模式": "读取工作模式的提示内容",
             "当前操作_Tx发包数量": "Tx发包数量的提示内容",
-            "当前操作_Tx发包间隔": "单位us，长发包模式设置为最小间隔7",
+            "当前操作_Tx发包间隔": "单位ms，长发包模式设置为最小间隔3",
             "当前操作_Tx开关": "Tx开关的提示内容",
             "当前操作_Rx通道配置": "Rx通道配置的提示内容",
             "当前操作_Rx开关": "Rx开关的提示内容",
@@ -966,7 +973,7 @@ class CB_Calibrate_Frame:
                 except ValueError:
                     self.cb_cal_insert_log("输入的当前水平PDOA值1无效，请输入一个整数\n", "red")
                     return
-
+                
                 try:
                     pdoa2 = int(pdoa2_str)
                     if not (-32768 <= pdoa2 <= 32767):
@@ -1048,11 +1055,14 @@ class CB_Calibrate_Frame:
             return
 
         try:
-            tx_packet_interval = int(tx_packet_interval_str)
-            if tx_packet_interval < 7 or tx_packet_interval > 65535:
-                self.cb_cal_insert_log("输入的发包间隔不在有效范围内（7-65535）\n","red")
+            tx_packet_interval = ((int(tx_packet_interval_str))*8)
+            if tx_packet_interval < 20 or tx_packet_interval > 65535:
+                # self.cb_cal_insert_log("输入的发包间隔不在有效范围内（7-65535）\n","red")
+                self.cb_cal_insert_log("输入的发包间隔不在有效范围内（3-65）\n","red")
                 return
             data = [(tx_packet_interval >> 8) & 0xFF, tx_packet_interval & 0xFF]
+            print(f"tx_packet_interval: {tx_packet_interval}")
+            print(f"data (raw bytes): {[hex(byte) for byte in data]}")
             # 发送命令到状态机
             if self.serial_state_machine:
                 cmd_h, cmd_l = self.ftcmd_map.get("Tx发包间隔", (0x00, 0x00))
@@ -1146,13 +1156,14 @@ class CB_Calibrate_Frame:
 
     def real_ranging_mode_freq_config(self):
         ranging_mode_freq_str = self.ranging_mode_freq_combobox.get()
-        ranging_mode_freq = 0x00
-        if ranging_mode_freq_str == "10":
-            ranging_mode_freq = 0x10
-        elif ranging_mode_freq_str == "20":
-            ranging_mode_freq = 0x20
-        elif ranging_mode_freq_str == "50":
-            ranging_mode_freq = 0x50
+        # ranging_mode_freq = 0x00
+        # if ranging_mode_freq_str == "10":
+        #     ranging_mode_freq = 0x10
+        # elif ranging_mode_freq_str == "20":
+        #     ranging_mode_freq = 0x20
+        # elif ranging_mode_freq_str == "50":
+        #     ranging_mode_freq = 0x50
+        ranging_mode_freq = int(ranging_mode_freq_str)
         data = [ranging_mode_freq]
         # print(f"data: {data}")
         # 发送命令到状态机
@@ -1329,9 +1340,17 @@ class CB_Calibrate_Frame:
             else:
                 self.cb_cal_insert_log("失败：未知状态\n","red")
 
+    # def handle_read_chip_id(self, response):
+    #     # 处理 "读取芯片ID" 的逻辑
+    #     chip_id = response[0:4]
+    #     print(f"Chip ID: {chip_id}")
+    #     if all(byte == 0xFF for byte in chip_id):  # 检查是否全为 0xFF
+    #         self.cb_cal_insert_log("Failed to read chip ID: all bytes are 0xFF")
+    #     else:
+    #         self.cb_cal_insert_log(f"Chip ID: {chip_id.hex()}","green")
     def handle_read_chip_id(self, response):
         # 处理 "读取芯片ID" 的逻辑
-        chip_id = response[0:4]
+        chip_id = response[0:8]  # 修改为读取前8个字节
         print(f"Chip ID: {chip_id}")
         if all(byte == 0xFF for byte in chip_id):  # 检查是否全为 0xFF
             self.cb_cal_insert_log("Failed to read chip ID: all bytes are 0xFF")
@@ -1415,7 +1434,7 @@ class CB_Calibrate_Frame:
         aoav = self.to_signed_16bit((response[2] << 8) | response[3])
         pdoa1 = self.to_signed_16bit((response[4] << 8) | response[5])
         pdoa2 = self.to_signed_16bit((response[6] << 8) | response[7])
-        self.cb_cal_insert_log(f"读取AOA校准值，AOAH={aoah}, AOAV={aoav}, PDOA1={pdoa1}, PDOA2={pdoa2}\n","green")
+        self.cb_cal_insert_log(f"读取AOA校准值，AOAH={aoah}, AOAV={aoav}, PDOA1={pdoa1}, PDOA2={0}\n","green")
 
     def handle_write_aoa_calibration(self, response):
         # 处理 "写入AOA校准值" 的逻辑
@@ -1525,7 +1544,7 @@ class CB_Calibrate_Frame:
 
     def handle_read_ranging_mode_id(self, response):
         # 处理 "读取测距模式SYNC ID" 的逻辑
-        result = (response[0] << 8) | response[1]
+        result = (response[0] << 24) | (response[1] << 16) | (response[2] << 8) | response[3]
         self.cb_cal_insert_log(f"读取测距模式SYNC ID成功，ID为 {result}\n","green")
 
     def handle_ranging_mode_freq_config(self, response):
@@ -1541,17 +1560,24 @@ class CB_Calibrate_Frame:
     def handle_read_ranging_mode_freq(self, response):
         # 处理 "读取测距模式频率" 的逻辑
         result = int(response[0])
+        # self.cb_cal_insert_log(f"原始响应数据: {response} (Hex: {response.hex()})\n", "black")
         # if not result == 0xff:
         #     self.cb_cal_insert_log(f"读取测距模式频率成功，频率为 {result}\n","green")
         # else:
         #     self.cb_cal_insert_log("读取测距模式频率失败\n","red")
 
-        mapping = {0x10: 10, 0x20: 20, 0x30: 30, 0x50: 50}
-        if result in mapping:
-            frequency = mapping[result]
-            self.cb_cal_insert_log(f"读取测距模式频率成功，频率为 {frequency}Hz\n", "green")
+        # mapping = {0x10: 10, 0x20: 20, 0x30: 30, 0x50: 50}
+        # if result in mapping:
+        #     frequency = mapping[result]
+        #     self.cb_cal_insert_log(f"读取测距模式频率成功，频率为 {frequency}Hz\n", "green")
+        # else:
+        #     self.cb_cal_insert_log("读取测距模式频率失败\n", "red")
+        valid_frequencies = [10, 20, 50]  # 支持的频率列表（十进制）
+        if result in valid_frequencies:
+            self.cb_cal_insert_log(f"读取测距模式频率成功，频率为 {result}Hz\n", "green")
         else:
             self.cb_cal_insert_log("读取测距模式频率失败\n", "red")
+
 
 
     def handle_ranging_mode_tx_switch(self, response):

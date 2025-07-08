@@ -58,6 +58,15 @@ from uart5_extension import UARTTool_Extension
 from tkinterdnd2 import DND_FILES, TkinterDnD
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 
+from log_parse2 import aggregate_logs,parse_line
+Key_value_pair_mult = {}          #键值对
+g_key_word = {}
+field_keys = []
+key_num = 0
+first_data_parsed = False  # 新增标志位
+
+fields  = []
+
 
 CCC_FILE_PATH = Path(__file__).parent / './icon'
 CONFIG_FILE = Path(__file__).parent / "uart_config.ini"
@@ -159,8 +168,6 @@ def get_local_ip():
     local_ip = socket.gethostbyname(hostname)
     return local_ip
 
-
-
 class ServerGUI:
     def __init__(self, root):
         self.root = root
@@ -226,6 +233,12 @@ def apply_theme_to_titlebar(root, dark_type="normal"):
         root.wm_attributes("-alpha", 1)
 
 class UARTTool:
+    global g_key_word 
+    global field_keys 
+    global key_num
+    global fields 
+    global Key_value_pair_mult
+
     def __init__(self, root1,top_root):
         self.root = root1
         self.top_root = top_root
@@ -249,6 +262,9 @@ class UARTTool:
         self.create_widgets()
         self.realtime_show_flag = False
         self.received_data_store = []
+
+        self.field_keys_ready = False
+        self.paused = 1  # 新增变量，默认不暂停
 
     def close_all(self):
         if self.serial_port and self.serial_port.is_open:
@@ -545,8 +561,8 @@ class UARTTool:
         # 绑定鼠标左键点击事件
         self.port_combobox.bind("<Button-1>", config_cb_click)
         # 绑定选中值事件
-        self.port_combobox.bind("<<ComboboxSelected>>", config_cb_change)
-        self.baudrate_combobox.bind("<<ComboboxSelected>>", config_cb_change)
+        # self.port_combobox.bind("<<ComboboxSelected>>", config_cb_change)
+        # self.baudrate_combobox.bind("<<ComboboxSelected>>", config_cb_change)
         # self.databits_combobox.bind("<<ComboboxSelected>>", config_cb_change)
         self.stopbits_combobox.bind("<<ComboboxSelected>>", config_cb_change)
         self.parity_combobox.bind("<<ComboboxSelected>>", config_cb_change)
@@ -577,11 +593,29 @@ class UARTTool:
 
     def clear_receive_data_cmd(self):
         self.received_data_store.clear()
-        self.received_data_store_test.clear()
+        # self.received_data_store_test.clear()
+        for field in field_keys:
+            if field in Key_value_pair_mult:
+                Key_value_pair_mult[field].clear()  # 清空原始数据
+        print("Key_value_pair_mult",Key_value_pair_mult)
+        self.update_chart()
 
+
+        # 新增：清除字段信息，允许再次解析
+        field_keys.clear()
+        self.field_keys_ready = False
+        self.first_data_parsed = False
+
+    def Pause_realtime_show(self):
+        # 切换暂停状态
+        self.paused = not self.paused
+        print(f"Pause_realtime_show={self.paused}")
 
     def realtime_show(self):
         if self.realtime_show_flag:
+            return
+        if not self.field_keys_ready:
+            messagebox.showwarning("警告", "尚未接收到有效数据，请先确保串口有数据输入")
             return
         self.realtime_show_flag = True
 
@@ -593,11 +627,13 @@ class UARTTool:
         self.chart_window.title("实时数据显示")
 
         self.fig, self.ax = plt.subplots()
-        self.fig.subplots_adjust(left=0.03, right=0.97, top=0.97, bottom=0.03)
+        self.fig.subplots_adjust(left=0.04, right=0.97, top=0.97, bottom=0.03)
         self.ax.grid(True)
 
-        fields = ['Idx', 'D', 'MPF', 'INIT_Azi', 'INIT_Ele', 'INIT_PDOA_1', 'INIT_PDOA_2', 'INIT_PDOA_3', 'INIT_RSSI_0', 'INIT_RSSI_1', 'INIT_RSSI_2', 'INIT_Gain_idx', 'INIT_Temp',
-                'RESP_Azi', 'RESP_Ele', 'RESP_PDOA_1', 'RESP_PDOA_2', 'RESP_PDOA_3', 'RESP_RSSI_0', 'RESP_RSSI_1', 'RESP_RSSI_2', 'RESP_Gain_idx', 'RESP_Temp']
+        fields = field_keys
+        print("fields",fields)
+        print("fields_keys",field_keys)
+
         default_checked_fields = ['D', 'RESP_Azi','RESP_Ele','INIT_Azi', 'INIT_Ele']  # 默认勾选的字段
         field_vars = {field: tk.BooleanVar(value=(field in default_checked_fields)) for field in fields}
 
@@ -612,6 +648,9 @@ class UARTTool:
         self.clear_received_data_btn = ttkb.Button(check_bt_frame, text="清空数据", command=self.clear_receive_data_cmd, bootstyle='outline')
         self.clear_received_data_btn.pack(side=tk.TOP, anchor=tk.W, padx=10, pady=5)
 
+        self.pause_btn = ttkb.Button(check_bt_frame, text="   暂停   ", command=self.Pause_realtime_show, bootstyle='outline')
+        self.pause_btn.pack(side=tk.TOP, anchor=tk.W, padx=10, pady=5)
+
         self.chart_canvas = FigureCanvasTkAgg(self.fig, master=chart_frame)
         self.chart_canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=1, padx=10, pady=10)
         self.toolbar = NavigationToolbar2Tk(self.chart_canvas, chart_frame)
@@ -623,10 +662,14 @@ class UARTTool:
             self.ax.clear()
             self.ax.grid(True)
 
-
             active_fields = [field for field, var in field_vars.items() if var.get()]
 
             data = {field: [] for field in active_fields}
+            # 从全局变量中提取对应字段的数据
+            for field in active_fields:
+                if field in Key_value_pair_mult:
+                    data[field] = Key_value_pair_mult[field].copy()  # 或者直接赋值，看是否需要深拷贝
+
             for entry in self.received_data_store:
                 for field in active_fields:
                     if field in entry:
@@ -636,8 +679,9 @@ class UARTTool:
                 if data[field]:
                     self.ax.plot(range(len(data[field])), data[field], label=field)
 
-            self.ax.legend()
-            self.chart_canvas.draw()
+            self.ax.legend(loc='upper right', bbox_to_anchor=(1.0, 1.0))       #固定在右上角
+            if self.paused:
+                self.chart_canvas.draw()
 
             if self.realtime_show_flag:
                 self.update_chart_id = self.chart_window.after(100, update_chart)
@@ -649,15 +693,12 @@ class UARTTool:
     def on_close_chart_window(self):
         # print("on_close_chart_window")
         self.realtime_show_flag = False
+        self.paused = 1
         if hasattr(self, 'update_chart_id'):
             self.chart_window.after_cancel(self.update_chart_id)
         self.received_data_store.clear()
-        # if self.chart_canvas:
-        #     self.chart_canvas.get_tk_widget().destroy()
-        #     self.chart_canvas = None
         if self.fig:
             plt.close(self.fig)  # 关闭图形对象
-            g_fig_temp = None
             self.fig = None
         self.chart_window.destroy()
         print("on_close_chart_window end")
@@ -682,7 +723,6 @@ class UARTTool:
         result = log_analysis_tochart(file_path)
         if not result:
             messagebox.showerror("错误", f"日志内容分析失败或数据太少")
-
 
 
     def update_config(self):
@@ -766,6 +806,10 @@ class UARTTool:
             self.receive_text.insert(tk.END, f"波特率：{baudrate} {databits} {int(stopbits)} {parity_str} {str_rcts} {str_dtr}\n")
             self.receive_text.see(tk.END)
 
+            # 新增：打开串口时重置字段解析标志
+            self.first_data_parsed = False
+            self.field_keys_ready = False
+
         except Exception as e:
             self.port_combobox.set(f"{port}")
             messagebox.showerror("错误", f"无法打开串口: {str(e)}")
@@ -794,41 +838,55 @@ class UARTTool:
             self.receive_text.insert(tk.END, f"{self.serial_port.name}已关闭\n", (self.red_tag,))
             self.receive_text.see(tk.END)
 
+
+            # 清除字段状态，允许下次重新解析
+            global field_keys, Key_value_pair_mult
+            field_keys.clear()
+            Key_value_pair_mult.clear()
+            self.field_keys_ready = False
+            self.first_data_parsed = False
+
             #messagebox.showinfo("信息", "串口已关闭")
         else:
             messagebox.showwarning("警告", "串口未打开")
 
     def receive_data(self):
+        global field_keys, first_data_parsed 
         if self.serial_port and self.serial_port.is_open:
             try:
-                while self.serial_port.in_waiting:
+                while self.serial_port.in_waiting > 0:
+                    # 使用 readline() 按行读取
+                    line = self.serial_port.readline()
                     encoding = self.config["DEFAULT"].get("encoding", "utf-8")
-                    data = self.serial_port.read(self.serial_port.in_waiting)
                     if self.hex_display_var.get():
-                        data = data.hex(' ').upper()
+                        decoded_line = line.hex(' ').upper()
                     else:
-                        data = data.decode(encoding, errors='replace')
+                        decoded_line = line.decode(encoding, errors='replace').strip('\r\n')  # 去除换行符
 
-                    # timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3] if self.timestamp_var.get() else ""
                     timestamp = datetime.now().strftime("%Y/%m/%d %H:%M:%S.%f")[:-3] if self.timestamp_var.get() else ""
-                    received_label = "接收<< "
-                    formatted_data = f"{timestamp} {received_label} {data}\n" if not data.endswith('\n') else f"{timestamp} {received_label} {data}"
-
-                    self.receive_text.insert(tk.END, formatted_data)
+                    # formatted_line = f"{timestamp} 接收<< {decoded_line}\n"
+                    formatted_line = f"{timestamp} {decoded_line}\n"
+                    self.receive_text.insert(tk.END, formatted_line)
                     self.receive_text.see(tk.END)
 
-                    # print(f"[DEBUG] Received data: {data}")
-                    
-                    if self.realtime_show_flag:
-                        self.parse_received_data(data)
-                        
+                    Key_value_pair = parse_line(decoded_line)
+                    if Key_value_pair:
+                        if not first_data_parsed:
+                            # global field_keys, first_data_parsed
+                            field_keys = list(Key_value_pair.keys())
+                            print("First keys (field_keys):", field_keys)
+                            self.field_keys_ready = True
+                            self.first_data_parsed = True
+
+                        for key, value in Key_value_pair.items():
+                            if key not in Key_value_pair_mult:
+                                Key_value_pair_mult[key] = []
+                            Key_value_pair_mult[key].append(value)
 
             except Exception as e:
-                self.close_serial_port()
-                #messagebox.showerror("错误", f"请检查连接")
-                # print(f"[DEBUG] Error in receive_data:{e}")
-        if self.auto_save_var.get():
-            self.check_receive_text_lines()
+            #     self.close_serial_port()
+            #     messagebox.showerror("错误", f"接收数据异常: {str(e)}")
+                pass
         self.root.after(100, self.receive_data)
 
     def check_receive_text_lines(self):
@@ -843,72 +901,6 @@ class UARTTool:
                 file.write(content)
             # 清空文本框内容
             self.receive_text.delete("1.0", tk.END)
-
-
-    # def parse_received_data_test(self, data):
-    #     # 定义正则表达式匹配新的日志格式
-    #     pattern = re.compile(r"count:ok:(\d+),M:(\d+)")
-    #     matches = pattern.findall(data)
-
-    #     for match in matches:
-
-    #         ok_count = int(match[0])  # 成功收到的包的数目
-    #         m_count = int(match[1])  # 丢包数
-    #         timestamp = datetime.now()  # 记录当前时间戳
-    #         self.received_data_store_test.append({
-    #             'timestamp': timestamp,  # 时间戳
-    #             'OK': ok_count,          # 成功收到的包的数目
-    #             'M': m_count             # 丢包数
-    #         })
-    #     # print(f"Data stored: {self.received_data_store_test}")  # 调试日志
-
-    def parse_received_data(self, data):
-        pattern = re.compile(
-            r"Idx:(\d+),"
-            r"D:(\d+\.\d+)cm,"  # 修改字段名为 D
-            r"MPF:(\d+),"
-            r"INIT:Azi:(-?\d+\.\d+)deg,"
-            r"Ele:(-?\d+\.\d+)deg,"
-            r"PDOA:\((-?\d+\.\d+),(-?\d+\.\d+),(-?\d+\.\d+)\)deg,"
-            r"RSSI:\((-?\d+),(-?\d+),(-?\d+)\)dBm,"
-            r"Gain_idx:(\d+),"
-            r"Temp:(\d+\.\d+)C;"
-            r"RESP:Azi:(-?\d+\.\d+)deg,"
-            r"Ele:(-?\d+\.\d+)deg,"
-            r"PDOA:\((-?\d+\.\d+),(-?\d+\.\d+),(-?\d+\.\d+)\)deg,"
-            r"RSSI:\((-?\d+),(-?\d+),(-?\d+)\)dBm,"
-            r"Gain_idx:(\d+),"
-            r"Temp:(\d+\.\d+)C"
-        )
-        matches = pattern.findall(data)
-
-        for match in matches:
-            self.received_data_store.append({
-                'Type': 'INIT',
-                'Idx': int(match[0]),
-                'D': float(match[1]),
-                'MPF': int(match[2]),
-                'INIT_Azi': float(match[3]),
-                'INIT_Ele': float(match[4]),
-                'INIT_PDOA_1': float(match[5]),
-                'INIT_PDOA_2': float(match[6]),
-                'INIT_PDOA_3': float(match[7]),
-                'INIT_RSSI_0': int(match[8]),
-                'INIT_RSSI_1': int(match[9]),
-                'INIT_RSSI_2': int(match[10]),
-                'INIT_Gain_idx': int(match[11]),
-                'INIT_Temp': float(match[12]),
-                'RESP_Azi': float(match[13]),
-                'RESP_Ele': float(match[14]),
-                'RESP_PDOA_1': float(match[15]),
-                'RESP_PDOA_2': float(match[16]),
-                'RESP_PDOA_3': float(match[17]),
-                'RESP_RSSI_0': int(match[18]),
-                'RESP_RSSI_1': int(match[19]),
-                'RESP_RSSI_2': int(match[20]),
-                'RESP_Gain_idx': int(match[21]),
-                'RESP_Temp': float(match[22])
-            })
 
     def send_data(self):
         if self.serial_port and self.serial_port.is_open:
